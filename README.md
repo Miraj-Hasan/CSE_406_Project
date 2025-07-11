@@ -2,10 +2,6 @@
 
 This project implements a hybrid network attack combining DHCP starvation and DHCP spoofing to gain control of network clients.
 
-## Team Members
-- Wahid Al Azad Navid (2005089)
-- Md Miraj Hasan (2005084)
-
 ## Attack Description
 The attack has two phases:
 1. **DHCP Starvation**: Flood the legitimate DHCP server with requests to exhaust its IP pool
