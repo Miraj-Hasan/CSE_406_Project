@@ -1,0 +1,1 @@
+sudo $(which python) rogue_dhcp_server.py -c config.ini
