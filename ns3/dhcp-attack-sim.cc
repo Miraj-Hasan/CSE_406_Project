@@ -18,7 +18,7 @@ int main(int argc, char *argv[]) {
   LogComponentEnable("DhcpServerApp", LOG_LEVEL_INFO);
 
   // Number of clients
-  uint32_t numClients = 40;
+  uint32_t numClients = 140;
 
   // Create nodes
   NodeContainer clients;
@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
   csma.SetChannelAttribute("Delay", TimeValue(NanoSeconds(6560)));
 
   NetDeviceContainer devices = csma.Install(all);
-  csma.EnablePcapAll("dhcp-attack-sim", true);
+  csma.EnablePcapAll("pcap-files/dhcp-attack-sim", true);
 
   // Install Internet stack
   InternetStackHelper stack;
@@ -53,9 +53,13 @@ int main(int argc, char *argv[]) {
   // Port for DHCP
   uint16_t port = 67;
 
+  // Define broadcast address
+  Ipv4Address broadcastAddr = Ipv4Address("255.255.255.255");
+
+  int rogue_pool = 250; 
   // Rogue DHCP Server (responds fast)
   Ptr<DhcpServerApp> rogue = CreateObject<DhcpServerApp>();
-  rogue->Setup(Ipv4Address("192.168.100.1"), 100, port, MilliSeconds(1)); // fast
+  rogue->Setup(Ipv4Address("192.168.100.1"), rogue_pool, port, MilliSeconds(1)); // fast
   rogueServer.Get(0)->AddApplication(rogue);
   rogue->SetStartTime(Seconds(0.0));
 
@@ -68,16 +72,23 @@ int main(int argc, char *argv[]) {
   std::cout << "Rogue server node IP: " << rogueServer.Get(0)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal() << std::endl;
   std::cout << "Legit server node IP: " << legitServer.Get(0)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal() << std::endl;
 
-
-  // Attach DHCP Clients
-  for (uint32_t i = 0; i < clients.GetN(); ++i) {
+  for (uint32_t i = 0; i < numClients; ++i) {
+    Ptr<Node> node = clients.Get(i);
     Ptr<DhcpClientApp> client = CreateObject<DhcpClientApp>();
-    client->Setup(Ipv4Address("255.255.255.255"), port);
-    clients.Get(i)->AddApplication(client);
-    client->SetStartTime(Seconds(1.0 + i * 0.1));
-  }
+    client->Setup(broadcastAddr, 67);
 
-  Simulator::Stop(Seconds(20.0));
+    if (i == 0) { // only the first node acts as attacker
+        client->SetIsAttacker(true);
+    }
+
+    double jitter = (rand() % 100) / 1000.0; // 0–0.099s
+    client->SetStartTime(Seconds(2.0 + i * 0.2 + jitter));
+    client->SetStopTime(Seconds(20.0));
+    node->AddApplication(client);
+}
+
+  double runningTime = 30.0;
+  Simulator::Stop(Seconds(runningTime));
   Simulator::Run();
   Simulator::Destroy();
 
@@ -92,8 +103,19 @@ int main(int argc, char *argv[]) {
   std::cout << "From Legit Server     : " << legitAssigned
             << " (" << (total > 0 ? 100.0 * legitAssigned / total : 0) << "%)" << std::endl;
   std::cout << "===================================" << std::endl;
+
+  // Write results to a file for comparison
+  std::ostringstream fname;
+  fname << "results/numClients" << numClients << "_runningTime" << runningTime << "_roguePoolSize"<< rogue_pool <<".txt";
+  std::ofstream outfile(fname.str()); // overwrite mode
+  outfile << "numClients: " << numClients << std::endl;
+  outfile << "Total clients with IP: " << total << std::endl;
+  outfile << "From Rogue Server     : " << rogueAssigned
+          << " (" << (total > 0 ? 100.0 * rogueAssigned / total : 0) << "%)" << std::endl;
+  outfile << "From Legit Server     : " << legitAssigned
+          << " (" << (total > 0 ? 100.0 * legitAssigned / total : 0) << "%)" << std::endl;
+  outfile << "===================================" << std::endl;
+  outfile.close();
   
-
-
   return 0;
 }

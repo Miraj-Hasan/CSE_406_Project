@@ -84,7 +84,8 @@ void DhcpServerApp::HandleRead(Ptr<Socket> socket) {
   if (msgType == 1 && m_remaining > 0) {  // DHCPDISCOVER
     Ipv4Address offeredIp = AllocateIp();
     m_leaseTable[xid] = offeredIp;
-    Simulator::Schedule(m_delay, [=]() {
+    Time jitter = MilliSeconds(rand() % 2);
+    Simulator::Schedule(m_delay + jitter, [=]() {
       Ptr<Packet> offer = BuildDhcpOfferPacket(xid, chaddr, offeredIp);
       socket->SendTo(offer, 0, from);
       NS_LOG_INFO("Sent DHCPOFFER for " << offeredIp);

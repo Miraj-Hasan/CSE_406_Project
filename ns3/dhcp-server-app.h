@@ -1,3 +1,5 @@
+/* dhcp-server-app.h */
+
 #ifndef DHCP_SERVER_APP_H
 #define DHCP_SERVER_APP_H
 
@@ -34,6 +36,7 @@ private:
   uint32_t m_remaining;
   uint16_t m_port;
   Time m_delay;
+  
 
   std::map<uint32_t, Ipv4Address> m_leaseTable;  // xid -> offered IP
 };

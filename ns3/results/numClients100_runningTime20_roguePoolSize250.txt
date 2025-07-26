@@ -1,0 +1,5 @@
+numClients: 100
+Total clients with IP: 84
+From Rogue Server     : 82 (97.619%)
+From Legit Server     : 2 (2.38095%)
+===================================
