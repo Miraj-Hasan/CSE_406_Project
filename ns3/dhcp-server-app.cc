@@ -31,6 +31,15 @@ void DhcpServerApp::Setup(Ipv4Address startIp, uint32_t poolSize, uint16_t port,
   NS_LOG_INFO("Server has been set up!");
 }
 
+void DhcpServerApp::EnableDefense(bool on) {
+  m_defenceOn = on;
+  if (on) {
+    NS_LOG_INFO("DHCP flood defense enabled.");
+  } else {
+    NS_LOG_INFO("DHCP flood defense disabled.");
+  }
+}
+
 void DhcpServerApp::StartApplication() {
   m_socket = Socket::CreateSocket(GetNode(), UdpSocketFactory::GetTypeId());
   m_socket->SetAllowBroadcast(true);
@@ -81,7 +90,24 @@ void DhcpServerApp::HandleRead(Ptr<Socket> socket) {
   Mac48Address chaddr;
   chaddr.CopyFrom(&data[28]);
 
-  if (msgType == 1 && m_remaining > 0) {  // DHCPDISCOVER
+  if (msgType == 1 ) {  // DHCPDISCOVER
+    Time now = Simulator::Now();
+    if (m_defenceOn) {
+      // Maintain a rolling log of DISCOVER timestamps 
+
+      while(!m_recentDiscoverTimes.empty() && (now - m_recentDiscoverTimes.front() > m_monitorWindow)) {
+        m_recentDiscoverTimes.erase(m_recentDiscoverTimes.begin());
+      }
+      m_recentDiscoverTimes.push_back(now);
+
+      if(m_recentDiscoverTimes.size() > m_discoverThreshold) {
+        NS_LOG_WARN("DHCP flood detected: too many DISCOVERs (" 
+          << m_recentDiscoverTimes.size() << ") in the past "
+          << m_monitorWindow.GetSeconds() << "s. Dropping packet from " << chaddr);
+        return; // Ignore this request
+      }
+    }
+    if(m_remaining > 0) {
     Ipv4Address offeredIp = AllocateIp();
     m_leaseTable[xid] = offeredIp;
     Time jitter = MilliSeconds(rand() % 2);
@@ -90,6 +116,8 @@ void DhcpServerApp::HandleRead(Ptr<Socket> socket) {
       socket->SendTo(offer, 0, from);
       NS_LOG_INFO("Sent DHCPOFFER for " << offeredIp);
     });
+   }
+  
   } else if (msgType == 3) {  // DHCPREQUEST
     Ipv4Address lease = (requestedIp == Ipv4Address::GetAny()) ? m_leaseTable[xid] : requestedIp;
 

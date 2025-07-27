@@ -20,6 +20,9 @@ int main(int argc, char *argv[]) {
   // Number of clients
   uint32_t numClients = 140;
 
+  bool enableStarvatingDefense = false;
+  bool enableSpoofingDefense = false;
+
   // Create nodes
   NodeContainer clients;
   clients.Create(numClients);
@@ -60,17 +63,21 @@ int main(int argc, char *argv[]) {
   // Rogue DHCP Server (responds fast)
   Ptr<DhcpServerApp> rogue = CreateObject<DhcpServerApp>();
   rogue->Setup(Ipv4Address("192.168.100.1"), rogue_pool, port, MilliSeconds(1)); // fast
+  rogue->SetStartTime(Seconds(3.0));
   rogueServer.Get(0)->AddApplication(rogue);
-  rogue->SetStartTime(Seconds(0.0));
+  
 
   // Legitimate DHCP Server (slower)
   Ptr<DhcpServerApp> legit = CreateObject<DhcpServerApp>();
   legit->Setup(Ipv4Address("10.10.10.1"), 100, port, MilliSeconds(3)); // slow
+  legit->EnableDefense(enableStarvatingDefense); // Enable defense mechanism
   legitServer.Get(0)->AddApplication(legit);
   legit->SetStartTime(Seconds(0.0));
 
   std::cout << "Rogue server node IP: " << rogueServer.Get(0)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal() << std::endl;
   std::cout << "Legit server node IP: " << legitServer.Get(0)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal() << std::endl;
+
+  
 
   for (uint32_t i = 0; i < numClients; ++i) {
     Ptr<Node> node = clients.Get(i);
@@ -79,6 +86,15 @@ int main(int argc, char *argv[]) {
 
     if (i == 0) { // only the first node acts as attacker
         client->SetIsAttacker(true);
+    }
+
+    if(enableSpoofingDefense) {
+        // Add legitimate DHCP server to whitelist
+        client->EnableSpoofingDefense(true);
+        client->AddTrustedServer(Ipv4Address("10.1.1.141")); // Legitimate server IP
+    } else {
+        // No spoofing defense, so add rogue server to whitelist
+        client->EnableSpoofingDefense(false);
     }
 
     double jitter = (rand() % 100) / 1000.0; // 0–0.099s
@@ -106,7 +122,7 @@ int main(int argc, char *argv[]) {
 
   // Write results to a file for comparison
   std::ostringstream fname;
-  fname << "results/numClients" << numClients << "_runningTime" << runningTime << "_roguePoolSize"<< rogue_pool <<".txt";
+  fname << "results/defence_numClients" << numClients << "_runningTime" << runningTime << "_roguePoolSize_"<< rogue_pool <<"_both_defence_off.txt";
   std::ofstream outfile(fname.str()); // overwrite mode
   outfile << "numClients: " << numClients << std::endl;
   outfile << "Total clients with IP: " << total << std::endl;

@@ -9,6 +9,7 @@
 #include "ns3/packet.h"
 #include "ns3/simulator.h"
 #include "ns3/udp-socket-factory.h"
+
 #include <iomanip> // Required for std::setw and std::setfill
 
 namespace ns3
@@ -64,24 +65,26 @@ DhcpClientApp::GetServerAddress() const
     return m_serverAddress;
 }
 
-Mac48Address DhcpClientApp::GenerateSpoofedMac(uint32_t index) {
+Mac48Address
+DhcpClientApp::GenerateSpoofedMac(uint32_t index)
+{
     std::ostringstream oss;
-    oss << "00:11:22:"
-        << std::hex << std::setw(2) << std::setfill('0') << ((index >> 8) & 0xFF) << ":"
-        << std::setw(2) << (index & 0xFF) << ":AA";
+    oss << "00:11:22:" << std::hex << std::setw(2) << std::setfill('0') << ((index >> 8) & 0xFF)
+        << ":" << std::setw(2) << (index & 0xFF) << ":AA";
     return Mac48Address(oss.str().c_str());
-  }
-  
+}
 
-void DhcpClientApp::SendSpoofedDiscover(uint32_t index) {
+void
+DhcpClientApp::SendSpoofedDiscover(uint32_t index)
+{
     uint32_t spoofedXid = rand();
     Mac48Address spoofedMac = GenerateSpoofedMac(index);
     Ptr<Packet> pkt = BuildDhcpDiscoverPacketWith(spoofedXid, spoofedMac);
-  
+
     m_socket->SendTo(pkt, 0, InetSocketAddress(Ipv4Address("255.255.255.255"), m_port));
-    NS_LOG_INFO("Attacker sent DISCOVER #" << index << " with MAC=" << spoofedMac << " XID=" << spoofedXid);
-  }
-  
+    NS_LOG_INFO("Attacker sent DISCOVER #" << index << " with MAC=" << spoofedMac
+                                           << " XID=" << spoofedXid);
+}
 
 void
 DhcpClientApp::StartApplication()
@@ -160,6 +163,14 @@ DhcpClientApp::HandleRead(Ptr<Socket> socket)
     uint32_t xid = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
     if (xid != m_xid)
         return; // Ignore packets for other clients
+
+    Ipv4Address serverIp = InetSocketAddress::ConvertFrom(from).GetIpv4(); 
+
+    if(m_spoofingDefenseEnabled && m_whiteListedServers.find(serverIp) == m_whiteListedServers.end())
+    {
+        NS_LOG_INFO("Received packet from untrusted server: " << serverIp);
+        return; // Ignore packets from untrusted servers
+    }
 
     Ipv4Address offeredIp =
         Ipv4Address((data[16] << 24) | (data[17] << 16) | (data[18] << 8) | data[19]);
@@ -270,22 +281,46 @@ DhcpClientApp::SetIsAttacker(bool isAttacker)
     m_isAttacker = isAttacker;
 }
 
-Ptr<Packet> DhcpClientApp::BuildDhcpDiscoverPacketWith(uint32_t xid, Mac48Address mac) {
+Ptr<Packet>
+DhcpClientApp::BuildDhcpDiscoverPacketWith(uint32_t xid, Mac48Address mac)
+{
     uint8_t buf[300] = {0};
-    buf[0] = 1; buf[1] = 1; buf[2] = 6; buf[3] = 0;
-  
+    buf[0] = 1;
+    buf[1] = 1;
+    buf[2] = 6;
+    buf[3] = 0;
+
     buf[4] = (xid >> 24) & 0xFF;
     buf[5] = (xid >> 16) & 0xFF;
     buf[6] = (xid >> 8) & 0xFF;
     buf[7] = xid & 0xFF;
-  
-    buf[236] = 99; buf[237] = 130; buf[238] = 83; buf[239] = 99;
-    buf[240] = 53; buf[241] = 1; buf[242] = 1; // DISCOVER
+
+    buf[236] = 99;
+    buf[237] = 130;
+    buf[238] = 83;
+    buf[239] = 99;
+    buf[240] = 53;
+    buf[241] = 1;
+    buf[242] = 1; // DISCOVER
     buf[243] = 255;
-  
+
     mac.CopyTo(&buf[28]);
     return Create<Packet>(buf, 244);
-  }
-  
+}
+
+void
+DhcpClientApp::AddTrustedServer(Ipv4Address serverIp)
+{
+    m_whiteListedServers.insert(serverIp);
+    NS_LOG_INFO("Added trusted server: " << serverIp);
+}
+
+void
+DhcpClientApp::EnableSpoofingDefense(bool enable)
+{
+    m_spoofingDefenseEnabled = enable;
+}
+
+
 
 } // namespace ns3

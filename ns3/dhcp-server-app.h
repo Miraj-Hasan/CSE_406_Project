@@ -17,6 +17,7 @@ public:
   static TypeId GetTypeId(void);
   DhcpServerApp();
   virtual ~DhcpServerApp();
+  void EnableDefense(bool on);
 
   void Setup(Ipv4Address startIp, uint32_t poolSize, uint16_t port, Time responseDelay);
 
@@ -36,6 +37,12 @@ private:
   uint32_t m_remaining;
   uint16_t m_port;
   Time m_delay;
+
+  // for defence
+  bool m_defenceOn = false; 
+  Time m_monitorWindow = Seconds(1);
+  uint32_t m_discoverThreshold = 20;
+  std::vector<Time> m_recentDiscoverTimes; // timestamps of received DHCPDISCOVER messages
   
 
   std::map<uint32_t, Ipv4Address> m_leaseTable;  // xid -> offered IP

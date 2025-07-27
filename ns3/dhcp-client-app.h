@@ -31,6 +31,9 @@ class DhcpClientApp : public Application
     Ptr<Packet> BuildDhcpDiscoverPacketWith(uint32_t xid, Mac48Address mac);
     Mac48Address GenerateSpoofedMac(uint32_t index);
 
+    void AddTrustedServer(Ipv4Address serverIp);
+    void EnableSpoofingDefense(bool enable);
+
   protected:
     virtual void StartApplication(void);
     virtual void StopApplication(void);
@@ -55,6 +58,11 @@ class DhcpClientApp : public Application
     bool m_isAttacker = false;
     uint32_t m_numSpoofed = 100;
     ns3::Time m_interval = ns3::MilliSeconds(10);
+
+    //Defence against spoofing parameters
+
+    std::set<Ipv4Address> m_whiteListedServers; // List of legitimate DHCP servers
+    bool m_spoofingDefenseEnabled = false; // Flag to enable/disable spoofing defense
 };
 
 } // namespace ns3
